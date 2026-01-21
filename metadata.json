@@ -1,0 +1,8 @@
+{
+  "name": "ID Card Filler Pro",
+  "description": "Un outil intelligent pour remplir automatiquement des cartes d'identité. Génération de noms, d'IDs aléatoires et de portraits IA.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
