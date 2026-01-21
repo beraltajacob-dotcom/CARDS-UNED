@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
+  <meta charset="utf-t">
   <title>ID Card Filler</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,6 +14,59 @@
     ::-webkit-scrollbar-track { background: #1e293b; }
     ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+    /* --- Pre-bootstrap Loader --- */
+    #app-loader {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background-color: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.5s ease-out;
+    }
+    .loader-content {
+      text-align: center;
+      width: 300px;
+    }
+    .loader-title {
+      font-size: 2rem;
+      font-weight: 700;
+      background-image: linear-gradient(to right, #10b981, #06b6d4);
+      background-clip: text;
+      -webkit-background-clip: text;
+      color: transparent;
+      margin-bottom: 1.5rem;
+    }
+    .progress-container {
+      width: 100%;
+      height: 8px;
+      background-color: #1e293b;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 1rem;
+    }
+    .progress-bar {
+      width: 0%;
+      height: 100%;
+      background-image: linear-gradient(to right, #10b981, #06b6d4);
+      border-radius: 4px;
+      transition: width 0.2s ease-out;
+    }
+    .loader-text {
+      color: #94a3b8;
+      font-size: 0.875rem;
+    }
+    app-root {
+      visibility: hidden;
+      opacity: 0;
+      transition: opacity 0.5s ease-in;
+    }
+    app-root.loaded {
+      visibility: visible;
+      opacity: 1;
+    }
   </style>
 <script type="importmap">
 {
@@ -34,6 +87,44 @@
 </script>
 </head>
 <body>
+  <div id="app-loader">
+    <div class="loader-content">
+      <h1 class="loader-title">ID Card Filler</h1>
+      <div class="progress-container">
+        <div id="progress-bar" class="progress-bar"></div>
+      </div>
+      <p class="loader-text">Initialisation de l'application...</p>
+    </div>
+  </div>
   <app-root></app-root>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const progressBar = document.getElementById('progress-bar');
+      const appLoader = document.getElementById('app-loader');
+      const appRoot = document.querySelector('app-root');
+      
+      let progress = 0;
+      const interval = setInterval(() => {
+        progress += Math.random() * 10;
+        if (progress > 100) {
+          progress = 100;
+        }
+        progressBar.style.width = progress + '%';
+        
+        if (progress === 100) {
+          clearInterval(interval);
+          setTimeout(() => {
+            appLoader.style.opacity = '0';
+            appRoot.classList.add('loaded');
+            
+            appLoader.addEventListener('transitionend', () => {
+              appLoader.style.display = 'none';
+            }, { once: true });
+            
+          }, 500);
+        }
+      }, 150);
+    });
+  </script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-import { Component, ElementRef, signal, effect, viewChild, OnInit, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ElementRef, signal, effect, viewChild, OnInit, ChangeDetectionStrategy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RandomizerService } from './services/randomizer.service';
 
@@ -27,6 +27,7 @@ export class AppComponent implements OnInit {
 
   // Signals for State
   imageLoaded = signal<boolean>(false);
+  isLoading = signal<boolean>(false);
   baseImage = signal<HTMLImageElement | null>(null);
   
   // Data State
@@ -38,22 +39,23 @@ export class AppComponent implements OnInit {
   
   // Position Display Signals (pour affichage UI)
   nameCoords = signal<{x: number, y: number}>({x: 51, y: 44});
-  idCoords = signal<{x: number, y: number}>({x: 52, y: 52});
+  idCoords = signal<{x: number, y: number}>({x: 54, y: 49});
 
   // Canvas State
   private ctx: CanvasRenderingContext2D | null = null;
   
   // Layers State
   private nameLayer: TextLayer = { id: 'name', text: '', x: 0.51, y: 0.44, isDragging: false };
-  private idLayer: TextLayer = { id: 'id', text: '', x: 0.52, y: 0.52, isDragging: false };
+  private idLayer: TextLayer = { id: 'id', text: '', x: 0.54, y: 0.49, isDragging: false };
 
   // Dragging logic
   private dragStart: { x: number, y: number } | null = null;
   private activeLayer: 'name' | 'id' | null = null;
 
-  constructor(
-    private randomizer: RandomizerService,
-  ) {
+  // FIX: Use inject() instead of constructor injection for services.
+  private randomizer = inject(RandomizerService);
+
+  constructor() {
     this.randomizeData();
     
     // Effect to initialize canvas when image and canvas element are ready
@@ -115,19 +117,23 @@ export class AppComponent implements OnInit {
   }
 
   private loadFile(file: File | string) {
+    this.isLoading.set(true);
+    this.imageLoaded.set(false);
     const img = new Image();
     img.crossOrigin = "Anonymous";
 
     img.onload = () => {
         this.imageLoaded.set(true);
+        this.isLoading.set(false);
         // Reset positions to defaults on new image
         this.nameLayer.x = 0.51; this.nameLayer.y = 0.44;
-        this.idLayer.x = 0.52; this.idLayer.y = 0.52;
+        this.idLayer.x = 0.54; this.idLayer.y = 0.49;
         this.updateCoordsDisplay();
         this.baseImage.set(img);
     };
     img.onerror = () => {
         console.error('Failed to load image. Using generator.');
+        this.isLoading.set(false);
         this.generateDemoCanvas();
     }
 
@@ -269,6 +275,7 @@ export class AppComponent implements OnInit {
     if (this.isHit(this.nameLayer, pos.x, pos.y)) {
       this.activeLayer = 'name';
       this.nameLayer.isDragging = true;
+    // FIX: Changed 'y' to 'pos.y' to correctly reference the mouse position.
     } else if (this.isHit(this.idLayer, pos.x, pos.y)) {
       this.activeLayer = 'id';
       this.idLayer.isDragging = true;
