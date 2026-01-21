@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  id-card-filler:
+    build:
+      context: .
+    container_name: id-card-filler-app
+    ports:
+      - "8080:80"

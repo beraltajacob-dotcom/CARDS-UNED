@@ -1,7 +1,6 @@
-import { Component, ElementRef, ViewChild, signal, effect, AfterViewInit } from '@angular/core';
+import { Component, ElementRef, signal, effect, viewChild, OnInit, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RandomizerService } from './services/randomizer.service';
-import { GeminiService } from './services/gemini.service';
 
 interface TextLayer {
   id: 'name' | 'id';
@@ -11,24 +10,15 @@ interface TextLayer {
   isDragging: boolean;
 }
 
-interface PortraitLayer {
-  image: HTMLImageElement | null;
-  x: number;
-  y: number;
-  width: number; // Percentage of canvas width
-  height: number; // Calculated based on aspect ratio
-  rotation: number; // Degrees
-  isDragging: boolean;
-}
-
 @Component({
   selector: 'app-root',
   imports: [CommonModule],
-  templateUrl: './app.component.html'
+  templateUrl: './app.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class AppComponent implements AfterViewInit {
-  @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
-  @ViewChild('fileInput') fileInput!: ElementRef<HTMLInputElement>;
+export class AppComponent implements OnInit {
+  canvasRef = viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
+  fileInput = viewChild.required<ElementRef<HTMLInputElement>>('fileInput');
 
   // ---------------------------------------------------------
   // 👇👇👇 ZONE DE CONFIGURATION IMAGE 👇👇👇
@@ -37,82 +27,62 @@ export class AppComponent implements AfterViewInit {
 
   // Signals for State
   imageLoaded = signal<boolean>(false);
-  isAnalyzing = signal<boolean>(false);
-  isGeneratingPortrait = signal<boolean>(false);
+  baseImage = signal<HTMLImageElement | null>(null);
   
   // Data State
   nameText = signal<string>('JEAN DUPONT');
   idText = signal<string>('12345678-A');
   textColor = signal<string>('#000000');
-  fontSize = signal<number>(15); // Valeur par défaut modifiée à 15
-  rotation = signal<number>(6);  // Valeur par défaut modifiée à 6
+  fontSize = signal<number>(15);
+  rotation = signal<number>(6);
   
-  // Portrait State
-  portraitScale = signal<number>(25);
-  portraitRotation = signal<number>(0);
-
   // Position Display Signals (pour affichage UI)
-  // Mises à jour avec les nouvelles valeurs par défaut
   nameCoords = signal<{x: number, y: number}>({x: 51, y: 44});
-  idCoords = signal<{x: number, y: number}>({x: 52, y: 51});
+  idCoords = signal<{x: number, y: number}>({x: 52, y: 52});
 
   // Canvas State
   private ctx: CanvasRenderingContext2D | null = null;
-  private baseImage: HTMLImageElement | null = null;
   
   // Layers State
-  // Mises à jour avec les nouvelles valeurs par défaut (0.51, 0.44 etc.)
   private nameLayer: TextLayer = { id: 'name', text: '', x: 0.51, y: 0.44, isDragging: false };
   private idLayer: TextLayer = { id: 'id', text: '', x: 0.52, y: 0.52, isDragging: false };
-  private portraitLayer: PortraitLayer = { 
-    image: null, 
-    x: 0.1, 
-    y: 0.35, 
-    width: 0.25, 
-    height: 0, 
-    rotation: 0,
-    isDragging: false 
-  };
 
   // Dragging logic
   private dragStart: { x: number, y: number } | null = null;
-  private activeLayer: 'name' | 'id' | 'portrait' | null = null;
+  private activeLayer: 'name' | 'id' | null = null;
 
   constructor(
     private randomizer: RandomizerService,
-    private gemini: GeminiService
   ) {
-    // Initial random data
     this.randomizeData();
     
-    // Redraw effect when signals change
+    // Effect to initialize canvas when image and canvas element are ready
     effect(() => {
-      // Track signals
-      const n = this.nameText();
-      const i = this.idText();
-      const c = this.textColor();
-      const s = this.fontSize();
-      const r = this.rotation();
-      const ps = this.portraitScale();
-      const pr = this.portraitRotation();
-      
-      this.nameLayer.text = n;
-      this.idLayer.text = i;
-      
-      // Update portrait properties from signals
-      this.portraitLayer.width = ps / 100;
-      this.portraitLayer.rotation = pr;
-      
-      this.draw();
+      const canvasEl = this.canvasRef()?.nativeElement;
+      const img = this.baseImage();
+      if (canvasEl && img) {
+        this.initCanvas(canvasEl, img);
+      }
+    });
+
+    // Effect to redraw when data or portrait image changes
+    effect(() => {
+      // Track all signals that should trigger a redraw
+      this.nameText();
+      this.idText();
+      this.textColor();
+      this.fontSize();
+      this.rotation();
+
+      // Redraw only if canvas is ready
+      if (this.ctx) {
+        this.draw();
+      }
     });
   }
 
-  ngAfterViewInit() {
-    if (this.CUSTOM_BASE_IMAGE && this.CUSTOM_BASE_IMAGE.length > 5) {
-      setTimeout(() => {
-        this.loadDemoImage();
-      }, 100);
-    }
+  ngOnInit() {
+    this.loadDemoImage();
   }
 
   randomizeData() {
@@ -121,6 +91,10 @@ export class AppComponent implements AfterViewInit {
   }
 
   // --- File Handling ---
+
+  openFilePicker() {
+    this.fileInput().nativeElement.click();
+  }
 
   onFileSelected(event: Event) {
     const input = event.target as HTMLInputElement;
@@ -140,39 +114,37 @@ export class AppComponent implements AfterViewInit {
     }
   }
 
-  loadFile(file: File) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        this.baseImage = img;
+  private loadFile(file: File | string) {
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+
+    img.onload = () => {
         this.imageLoaded.set(true);
-        // Reset positions to defaults if new image
+        // Reset positions to defaults on new image
         this.nameLayer.x = 0.51; this.nameLayer.y = 0.44;
         this.idLayer.x = 0.52; this.idLayer.y = 0.52;
         this.updateCoordsDisplay();
-        
-        setTimeout(() => this.initCanvas(), 0);
-      };
-      img.src = e.target?.result as string;
+        this.baseImage.set(img);
     };
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+        console.error('Failed to load image. Using generator.');
+        this.generateDemoCanvas();
+    }
+
+    if (typeof file === 'string') {
+        img.src = file;
+    } else {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            img.src = e.target?.result as string;
+        };
+        reader.readAsDataURL(file);
+    }
   }
 
   loadDemoImage() {
-    if (this.CUSTOM_BASE_IMAGE.length > 5) {
-      const img = new Image();
-      img.crossOrigin = "Anonymous";
-      img.onload = () => {
-        this.baseImage = img;
-        this.imageLoaded.set(true);
-        setTimeout(() => this.initCanvas(), 0);
-      };
-      img.onerror = () => {
-        console.error('Failed to load custom base image. Using generator.');
-        this.generateDemoCanvas();
-      }
-      img.src = this.CUSTOM_BASE_IMAGE;
+    if (this.CUSTOM_BASE_IMAGE && this.CUSTOM_BASE_IMAGE.length > 5) {
+      this.loadFile(this.CUSTOM_BASE_IMAGE);
     } else {
       this.generateDemoCanvas();
     }
@@ -209,54 +181,32 @@ export class AppComponent implements AfterViewInit {
 
     const img = new Image();
     img.onload = () => {
-      this.baseImage = img;
       this.imageLoaded.set(true);
-      setTimeout(() => this.initCanvas(), 0);
+      this.baseImage.set(img);
     };
     img.src = canvas.toDataURL();
   }
 
-  initCanvas() {
-    if (!this.canvasRef || !this.baseImage) return;
-    const canvas = this.canvasRef.nativeElement;
+  private initCanvas(canvas: HTMLCanvasElement, image: HTMLImageElement) {
     this.ctx = canvas.getContext('2d');
-    canvas.width = this.baseImage.width;
-    canvas.height = this.baseImage.height;
+    canvas.width = image.width;
+    canvas.height = image.height;
     this.draw();
   }
 
-  draw() {
-    if (!this.ctx || !this.baseImage || !this.canvasRef) return;
+  private draw() {
+    const image = this.baseImage();
+    if (!this.ctx || !image) return;
     
-    const w = this.canvasRef.nativeElement.width;
-    const h = this.canvasRef.nativeElement.height;
+    const w = this.ctx.canvas.width;
+    const h = this.ctx.canvas.height;
     
     this.ctx.clearRect(0, 0, w, h);
-    this.ctx.drawImage(this.baseImage, 0, 0, w, h);
+    this.ctx.drawImage(image, 0, 0, w, h);
 
-    if (this.portraitLayer.image) {
-       const pw = this.portraitLayer.width * w;
-       const ph = (pw / this.portraitLayer.image.width) * this.portraitLayer.image.height;
-       const px = this.portraitLayer.x * w;
-       const py = this.portraitLayer.y * h;
-       this.portraitLayer.height = ph / h;
-
-       this.ctx.save();
-       this.ctx.translate(px + pw/2, py + ph/2);
-       this.ctx.rotate(this.portraitLayer.rotation * Math.PI / 180);
-       this.ctx.drawImage(this.portraitLayer.image, -pw/2, -ph/2, pw, ph);
-       
-       if (this.portraitLayer.isDragging) {
-         this.ctx.strokeStyle = '#10b981';
-         this.ctx.lineWidth = 4;
-         this.ctx.strokeRect(-pw/2, -ph/2, pw, ph);
-         this.ctx.fillStyle = '#10b981';
-         const s = 10;
-         this.ctx.fillRect(-pw/2 - s/2, -ph/2 - s/2, s, s);
-         this.ctx.fillRect(pw/2 - s/2, ph/2 - s/2, s, s);
-       }
-       this.ctx.restore();
-    }
+    // Update layer text from signals before drawing
+    this.nameLayer.text = this.nameText();
+    this.idLayer.text = this.idText();
 
     this.ctx.fillStyle = this.textColor();
     const scaleFactor = w / 800; 
@@ -286,20 +236,23 @@ export class AppComponent implements AfterViewInit {
 
   // --- Interaction ---
 
-  getMousePos(event: MouseEvent) {
-    const rect = this.canvasRef.nativeElement.getBoundingClientRect();
-    const scaleX = this.canvasRef.nativeElement.width / rect.width;
-    const scaleY = this.canvasRef.nativeElement.height / rect.height;
+  private getMousePos(event: MouseEvent) {
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
     return {
       x: (event.clientX - rect.left) * scaleX,
       y: (event.clientY - rect.top) * scaleY
     };
   }
 
-  isHit(layer: TextLayer, mx: number, my: number): boolean {
-    if (!this.ctx) return false;
-    const w = this.canvasRef.nativeElement.width;
-    const h = this.canvasRef.nativeElement.height;
+  private isHit(layer: TextLayer, mx: number, my: number): boolean {
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!this.ctx || !canvas) return false;
+    const w = canvas.width;
+    const h = canvas.height;
     const x = layer.x * w;
     const y = layer.y * h;
     const scaleFactor = w / 800; 
@@ -307,24 +260,6 @@ export class AppComponent implements AfterViewInit {
     this.ctx.font = `bold ${fontSize}px "Courier Prime", monospace`;
     const metrics = this.ctx.measureText(layer.text);
     return (mx >= x && mx <= x + metrics.width && my >= y && my <= y + fontSize);
-  }
-
-  isPortraitHit(mx: number, my: number): boolean {
-    if (!this.portraitLayer.image) return false;
-    const w = this.canvasRef.nativeElement.width;
-    const h = this.canvasRef.nativeElement.height;
-    const pw = this.portraitLayer.width * w;
-    const ph = this.portraitLayer.height * h;
-    const px = this.portraitLayer.x * w;
-    const py = this.portraitLayer.y * h;
-    const cx = px + pw/2;
-    const cy = py + ph/2;
-    const dx = mx - cx;
-    const dy = my - cy;
-    const ang = -this.portraitLayer.rotation * Math.PI / 180;
-    const rx = dx * Math.cos(ang) - dy * Math.sin(ang);
-    const ry = dx * Math.sin(ang) + dy * Math.cos(ang);
-    return (rx >= -pw/2 && rx <= pw/2 && ry >= -ph/2 && ry <= ph/2);
   }
 
   onMouseDown(event: MouseEvent) {
@@ -337,9 +272,6 @@ export class AppComponent implements AfterViewInit {
     } else if (this.isHit(this.idLayer, pos.x, pos.y)) {
       this.activeLayer = 'id';
       this.idLayer.isDragging = true;
-    } else if (this.isPortraitHit(pos.x, pos.y)) {
-      this.activeLayer = 'portrait';
-      this.portraitLayer.isDragging = true;
     }
 
     if (this.activeLayer) {
@@ -349,12 +281,13 @@ export class AppComponent implements AfterViewInit {
   }
 
   updateLayerPos(event: MouseEvent) {
-     if (!this.activeLayer || !this.dragStart) return;
+     const canvas = this.canvasRef()?.nativeElement;
+     if (!this.activeLayer || !this.dragStart || !canvas) return;
      const pos = this.getMousePos(event);
      const dx = pos.x - this.dragStart.x;
      const dy = pos.y - this.dragStart.y;
-     const w = this.canvasRef.nativeElement.width;
-     const h = this.canvasRef.nativeElement.height;
+     const w = canvas.width;
+     const h = canvas.height;
 
      if (this.activeLayer === 'name') {
        this.nameLayer.x += dx / w;
@@ -362,9 +295,6 @@ export class AppComponent implements AfterViewInit {
      } else if (this.activeLayer === 'id') {
        this.idLayer.x += dx / w;
        this.idLayer.y += dy / h;
-     } else if (this.activeLayer === 'portrait') {
-       this.portraitLayer.x += dx / w;
-       this.portraitLayer.y += dy / h;
      }
 
      this.updateCoordsDisplay();
@@ -383,56 +313,6 @@ export class AppComponent implements AfterViewInit {
     });
   }
 
-  // --- AI Features ---
-
-  async analyzeLayout() {
-    if (!this.baseImage) return;
-    this.isAnalyzing.set(true);
-    
-    try {
-      const canvas = this.canvasRef.nativeElement;
-      const base64 = canvas.toDataURL('image/jpeg', 0.8);
-      const result = await this.gemini.analyzeLayout(base64);
-      
-      if (result) {
-        if (result.namePosition) {
-          this.nameLayer.x = result.namePosition.x / 100;
-          this.nameLayer.y = result.namePosition.y / 100;
-        }
-        if (result.idPosition) {
-          this.idLayer.x = result.idPosition.x / 100;
-          this.idLayer.y = result.idPosition.y / 100;
-        }
-        this.updateCoordsDisplay();
-        this.draw();
-      }
-    } catch (e) {
-      console.error(e);
-      alert('Erreur lors de l\'analyse IA. Vérifiez votre clé API.');
-    } finally {
-      this.isAnalyzing.set(false);
-    }
-  }
-
-  async generatePortrait() {
-    this.isGeneratingPortrait.set(true);
-    try {
-      const prompt = `A professional ID card portrait photo of a person named ${this.nameText()}, neutral background, realistic, passport style, high quality, facing camera.`;
-      const base64Data = await this.gemini.generatePortrait(prompt);
-      const img = new Image();
-      img.onload = () => {
-        this.portraitLayer.image = img;
-        this.draw();
-        this.isGeneratingPortrait.set(false);
-      };
-      img.src = base64Data;
-    } catch (e) {
-      console.error(e);
-      this.isGeneratingPortrait.set(false);
-      alert('Erreur de génération d\'image.');
-    }
-  }
-
   // --- Updates ---
   updateName(e: Event) { this.nameText.set((e.target as HTMLInputElement).value); }
   updateId(e: Event) { this.idText.set((e.target as HTMLInputElement).value); }
@@ -440,24 +320,21 @@ export class AppComponent implements AfterViewInit {
   updateFontSize(e: Event) { this.fontSize.set(Number((e.target as HTMLInputElement).value)); }
   updateRotation(e: Event) { this.rotation.set(Number((e.target as HTMLInputElement).value)); }
   
-  updatePortraitScale(e: Event) { this.portraitScale.set(Number((e.target as HTMLInputElement).value)); }
-  updatePortraitRotation(e: Event) { this.portraitRotation.set(Number((e.target as HTMLInputElement).value)); }
-
   onMouseUp() {
     if (this.activeLayer) {
       if (this.activeLayer === 'name') this.nameLayer.isDragging = false;
       if (this.activeLayer === 'id') this.idLayer.isDragging = false;
-      if (this.activeLayer === 'portrait') this.portraitLayer.isDragging = false;
       this.activeLayer = null;
       this.draw();
     }
   }
 
   downloadImage() {
-    if (!this.canvasRef) return;
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!canvas) return;
     const link = document.createElement('a');
     link.download = `id-card-${this.idText()}.png`;
-    link.href = this.canvasRef.nativeElement.toDataURL();
+    link.href = canvas.toDataURL();
     link.click();
   }
 }
